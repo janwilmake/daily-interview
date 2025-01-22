@@ -1,0 +1,11 @@
+{
+  "compilerOptions": {
+    "esModuleInterop": true,
+    "lib": ["es2022", "DOM"],
+    "types": ["node"],
+    "strict": true,
+    "outDir": "build",
+    "skipLibCheck": true,
+    "declaration": true
+  }
+}

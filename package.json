@@ -1,0 +1,8 @@
+{
+  "dependencies": {
+    "twilio": "^5.4.2"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250121.0"
+  }
+}
