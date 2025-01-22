@@ -46,7 +46,7 @@ export const createStreamPhonecall = async (context: {
     connect.stream({
       url: streamUrl,
       name: "LiveAudioStream",
-      track: "both_tracks",
+      // track: "both_tracks",
     });
 
     const call = await client.calls.create({
