@@ -19,4 +19,6 @@ MVP:
 
 # How to use
 
-- Copy `.dev.vars.example` into `.dev.vars` and fill the vars.
+- Clone the repo
+- Copy `.dev.vars.example` into `.dev.vars` and fill all the variables. Be sure to have bought a Twilio phone number that you connect here. The cloudflare API token needs to be able to manage cloudflare workers.
+- To test things locally, use ngrok: `brew install ngrok` -> `ngrok http 3000` and use that as `WORKER_HOST` in `.dev.vars` and after running with `npx wrangler dev --port 3000`, go to http://localhost:3000/test and receive your call.

@@ -1,8 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
-/**
-phone call streamer is initiated but 
-*/
-import { createStreamPhonecall } from "./createStreamPhonecall";
+import twilio from "twilio";
+
+const ALLOW_TEST_ENDPOINT = false;
 
 export interface Env {
   OPENAI_API_KEY: string;
@@ -11,21 +10,81 @@ export interface Env {
   TWILIO_FROM_NUMBER: string;
   TARGET_PHONE_NUMBER: string;
   WORKER_HOST: string;
+  INSTRUCTIONS_URL: string;
 }
 
-interface TwilioMediaMessage {
-  event: string;
-  media?: {
-    payload: string;
-    timestamp: number;
-  };
-  start?: {
-    streamSid: string;
-  };
-  mark?: {
-    name: string;
-  };
-}
+export const createStreamPhonecall = async (context: {
+  /** Your Twilio Account SID */
+  twilioAccountSid: string;
+  /** Your Twilio Auth Token */
+  twilioAuthToken: string;
+  /** Phone number to call in E.164 format (+1234567890) */
+  phoneNumber: string;
+  /** WebSocket URL for audio streaming */
+  streamUrl: string;
+  /** Caller ID (Twilio number in E.164 format) */
+  fromNumber: string;
+}) => {
+  const {
+    twilioAccountSid,
+    twilioAuthToken,
+    phoneNumber,
+    streamUrl,
+    fromNumber,
+  } = context;
+
+  try {
+    // Validate phone number format
+    if (phoneNumber.startsWith("+")) {
+      return {
+        isSuccessful: false,
+        message: "Phone number must be without + (1234567890)",
+      };
+    }
+
+    // Basic region check
+    const isEea = phoneNumber.startsWith("3") || phoneNumber.startsWith("4");
+    const isUs = phoneNumber.startsWith("1");
+    if (!isEea && !isUs) {
+      return {
+        isSuccessful: false,
+        message: "Only EU and US numbers supported",
+      };
+    }
+
+    const client = twilio(twilioAccountSid, twilioAuthToken);
+    const twiml = new twilio.twiml.VoiceResponse();
+
+    // start or connect???
+    // const connect=twiml.connect();
+    twiml.connect().stream({
+      url: streamUrl,
+      name: "LiveAudioStream123",
+      // for connect we cannot do "both_tracks". for start, we can.
+      // track: "both_tracks",
+    });
+
+    const call = await client.calls.create({
+      twiml: twiml.toString(),
+      to: phoneNumber,
+      from: fromNumber,
+      record: false,
+      machineDetection: "Enable",
+    });
+
+    return {
+      isSuccessful: true,
+      message: "Call initiated with audio stream",
+      callSid: call.sid,
+    };
+  } catch (error: any) {
+    console.error("Twilio Error:", error);
+    return {
+      isSuccessful: false,
+      message: error.message || "Failed to initiate call",
+    };
+  }
+};
 
 interface OpenAIEvent {
   type: string;
@@ -38,9 +97,8 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
-    if (url.pathname === "/test") {
-      const streamUrl = `wss://${env.WORKER_HOST}/media-stream`;
-      console.log({ streamUrl });
+    if (url.pathname === "/test" && ALLOW_TEST_ENDPOINT) {
+      const streamUrl = `wss://${env.WORKER_HOST}/media-stream?instructionsUrl=${env.INSTRUCTIONS_URL}`;
       const result = await createStreamPhonecall({
         twilioAccountSid: env.TWILIO_ACCOUNT_SID,
         twilioAuthToken: env.TWILIO_AUTH_TOKEN,
@@ -53,31 +111,22 @@ export default {
       });
     }
 
-    // Handle incoming call webhook
-    if (url.pathname === "/incoming-call") {
-      const twiml = `<?xml version="1.0" encoding="UTF-8"?>
-                <Response>
-                    <Say>Please wait while we connect your call to the A. I. voice assistant, powered by Twilio and the Open-A.I. Realtime API</Say>
-                    <Pause length="1"/>
-                    <Say>O.K. you can start talking!</Say>
-                    <Connect>
-                        <Stream url="wss://${env.WORKER_HOST}/media-stream" />
-                    </Connect>
-                </Response>`;
-
-      return new Response(twiml, {
-        headers: { "Content-Type": "text/xml" },
-      });
-    }
-
     // Handle WebSocket upgrade for media stream
     if (url.pathname === "/media-stream") {
       console.log("RECEIVED /media-stream");
+      const instructionsUrl = url.searchParams.get("instructionsUrl");
+      if (!instructionsUrl) {
+        return new Response("No instructions given", { status: 400 });
+      }
+
+      const instructionsPromise = fetch(instructionsUrl).then(async (res) => {
+        return { status: res.status, text: await res.text() };
+      });
+
       const webSocketPair = new WebSocketPair();
       const [client, server] = Object.values(webSocketPair);
-
       server.accept();
-      handleServerWebSocket(server, env);
+      handleServerWebSocket(server, env, instructionsPromise);
 
       return new Response(null, {
         status: 101,
@@ -110,44 +159,61 @@ export default {
   },
 };
 
-function handleServerWebSocket(twilioWebsocket: WebSocket, env: Env) {
+function handleServerWebSocket(
+  twilioWebsocket: WebSocket,
+  env: Env,
+  instructionsPromise: Promise<{ status: number; text: string }>,
+) {
   twilioWebsocket.accept();
-
+  console.log("ENTERED THE WEBSOCKET");
   const audioQueue: any[] = [];
-  const SYSTEM_MESSAGE = "You are a helpful and bubbly AI assistant..."; // Keep your original message
-  const VOICE = "alloy";
+  const VOICE = "ash";
   const LOG_EVENT_TYPES = ["error", "response.content.done"];
   let openAiWs: WebSocket;
   let twilioWebsocketStreamSid: string | null = null;
+  let latestMediaTimestamp = 0;
+  let lastAssistantItem: string | null = null;
+  let markQueue: string[] = [];
+  let responseStartTimestampTwilio: number | null = null;
 
   async function handleTwilioWebSocket() {
     const BUFFER_SIZE = 20 * 160;
     let inbuffer: Uint8Array = new Uint8Array(0);
 
     twilioWebsocket.addEventListener("message", async (event) => {
-      const data = JSON.parse(event.data as string);
+      const data = JSON.parse(event.data.toString());
+
       if (data.event === "start") {
         const start = data.start;
-        console.log("got our streamsid", twilioWebsocketStreamSid);
         twilioWebsocketStreamSid = start.streamSid;
+        responseStartTimestampTwilio = null;
+        latestMediaTimestamp = 0;
+
+        console.log("got our streamsid", twilioWebsocketStreamSid);
       }
-      if (data.event === "connected") {
-        return;
-      }
+
       if (data.event === "media") {
-        const media = data.media;
-        const chunk = new Uint8Array(
-          atob(media.payload)
-            .split("")
-            .map((char) => char.charCodeAt(0)),
-        );
-        if (media.track === "inbound") {
-          const newBuffer = new Uint8Array(inbuffer.length + chunk.length);
-          newBuffer.set(inbuffer);
-          newBuffer.set(chunk, inbuffer.length);
-          inbuffer = newBuffer;
+        latestMediaTimestamp = data.media!.timestamp;
+        // console.log("media event", latestMediaTimestamp, data.media?.payload);
+        if (openAiWs.readyState === WebSocket.OPEN) {
+          openAiWs.send(
+            JSON.stringify({
+              type: "input_audio_buffer.append",
+              audio: data.media!.payload,
+            }),
+          );
         }
       }
+
+      if (data.event === "mark") {
+        markQueue.shift();
+      }
+
+      if (data.event === "connected") {
+        console.log("got connected event from twilio websocket");
+        return;
+      }
+
       if (data.event === "stop") {
         return;
       }
@@ -165,9 +231,12 @@ function handleServerWebSocket(twilioWebsocket: WebSocket, env: Env) {
       }
     });
 
-    twilioWebsocket.addEventListener("close", () => {
+    twilioWebsocket.addEventListener("error", (ev: any) => {
+      console.log("twilioWebsocket error", ev.message);
+    });
+    twilioWebsocket.addEventListener("close", (ev) => {
       openAiWs.close();
-      console.log("Twilio connection closed");
+      console.log("Twilio connection closed", ev);
     });
   }
 
@@ -182,7 +251,14 @@ function handleServerWebSocket(twilioWebsocket: WebSocket, env: Env) {
         "openai-beta.realtime-v1",
       ],
     );
-    openAiWs.addEventListener("open", () => {
+    openAiWs.addEventListener("open", async () => {
+      console.log("OpenAI WS Open now!");
+      const instructionsResult = await instructionsPromise;
+      const instructions =
+        instructionsResult.status === 200
+          ? instructionsResult.text
+          : "The instructions couldn't be found. Please let the user know that this is the case, and end your conversation afterwards";
+
       const sessionUpdate = {
         type: "session.update",
         session: {
@@ -190,278 +266,88 @@ function handleServerWebSocket(twilioWebsocket: WebSocket, env: Env) {
           input_audio_format: "g711_ulaw",
           output_audio_format: "g711_ulaw",
           voice: VOICE,
-          instructions: SYSTEM_MESSAGE,
+          instructions,
           modalities: ["text", "audio"],
           temperature: 0.8,
         },
       };
+
       openAiWs.send(JSON.stringify(sessionUpdate));
     });
 
     openAiWs.addEventListener("message", async (event) => {
-      const message = event.data;
+      try {
+        const response: OpenAIEvent = JSON.parse(event.data);
+        console.log("event", response.type);
+        if (LOG_EVENT_TYPES.includes(response.type)) {
+          console.log("OpenAI Event:", response.type, response);
+        }
 
-      if (typeof message === "string") {
-        // this logs what is happening
-        console.log(message);
-        return;
+        if (response.type === "response.audio.delta" && response.delta) {
+          const audioDelta = {
+            event: "media",
+            streamSid: twilioWebsocketStreamSid,
+            media: { payload: response.delta },
+          };
+          twilioWebsocket.send(JSON.stringify(audioDelta));
+
+          if (!responseStartTimestampTwilio) {
+            responseStartTimestampTwilio = latestMediaTimestamp;
+          }
+          if (response.item_id) lastAssistantItem = response.item_id;
+
+          if (twilioWebsocketStreamSid) {
+            // send mark event
+            const markEvent = {
+              event: "mark",
+              streamSid: twilioWebsocketStreamSid,
+              mark: { name: "responsePart" },
+            };
+            twilioWebsocket.send(JSON.stringify(markEvent));
+            markQueue.push("responsePart");
+          }
+        }
+
+        if (response.type === "input_audio_buffer.speech_started") {
+          if (markQueue.length > 0 && responseStartTimestampTwilio !== null) {
+            const elapsedTime =
+              latestMediaTimestamp - responseStartTimestampTwilio;
+            if (lastAssistantItem) {
+              openAiWs.send(
+                JSON.stringify({
+                  type: "conversation.item.truncate",
+                  item_id: lastAssistantItem,
+                  content_index: 0,
+                  audio_end_ms: elapsedTime,
+                }),
+              );
+            }
+            twilioWebsocket.send(
+              JSON.stringify({
+                event: "clear",
+                streamSid: twilioWebsocketStreamSid,
+              }),
+            );
+            markQueue = [];
+            lastAssistantItem = null;
+            responseStartTimestampTwilio = null;
+          }
+        }
+      } catch (error) {
+        console.error("OpenAI message error:", error);
       }
-
-      const rawMulaw = message;
-      const mulawString = String.fromCharCode(...new Uint8Array(rawMulaw));
-      const mediaMessage = {
-        event: "media",
-        streamSid: twilioWebsocketStreamSid,
-        media: { payload: btoa(mulawString) },
-      };
-
-      twilioWebsocket.send(JSON.stringify(mediaMessage));
     });
 
-    openAiWs.addEventListener("close", () => {
+    openAiWs.addEventListener("error", (ev: any) => {
+      console.log("openaiWs error", ev.message);
+    });
+    openAiWs.addEventListener("close", (ev) => {
       twilioWebsocket.close();
-      console.log("OpenAI connection closed");
+      console.log("OpenAI connection closed", ev);
     });
   }
-  //
-  // let latestMediaTimestamp = 0;
-  // let lastAssistantItem: string | null = null;
-  // let markQueue: string[] = [];
-  // let responseStartTimestampTwilio: number | null = null;
 
-  // Create OpenAI WebSocket connection
+  handleOpenAiWs();
 
-  // openAiWs.addEventListener("message", (event) => {
-  //   try {
-  //     const response: OpenAIEvent = JSON.parse(event.data);
-
-  //     if (LOG_EVENT_TYPES.includes(response.type)) {
-  //       console.log("OpenAI Event:", response.type, response);
-  //     }
-
-  //     if (response.type === "response.audio.delta" && response.delta) {
-  //       const audioDelta = {
-  //         event: "media",
-  //         streamSid: streamSid,
-  //         media: { payload: response.delta },
-  //       };
-  //       server.send(JSON.stringify(audioDelta));
-
-  //       if (!responseStartTimestampTwilio) {
-  //         responseStartTimestampTwilio = latestMediaTimestamp;
-  //       }
-  //       if (response.item_id) lastAssistantItem = response.item_id;
-
-  //       sendMark(server, streamSid);
-  //     }
-
-  //     if (response.type === "input_audio_buffer.speech_started") {
-  //       handleSpeechStarted();
-  //     }
-  //   } catch (error) {
-  //     console.error("OpenAI message error:", error);
-  //   }
-  // });
-
-  // Twilio WebSocket handlers
-  // server.addEventListener("message", (event) => {
-  //   try {
-  //     const data: TwilioMediaMessage = JSON.parse(event.data.toString());
-
-  //     switch (data.event) {
-  //       case "media":
-  //         latestMediaTimestamp = data.media!.timestamp;
-  //         if (openAiWs.readyState === WebSocket.OPEN) {
-  //           openAiWs.send(
-  //             JSON.stringify({
-  //               type: "input_audio_buffer.append",
-  //               audio: data.media!.payload,
-  //             }),
-  //           );
-  //         }
-  //         break;
-  //       case "start":
-  //         streamSid = data.start!.streamSid;
-  //         console.log("Stream started:", streamSid);
-  //         responseStartTimestampTwilio = null;
-  //         latestMediaTimestamp = 0;
-  //         break;
-  //       case "mark":
-  //         markQueue.shift();
-  //         break;
-  //     }
-  //   } catch (error) {
-  //     console.error("Twilio message error:", error);
-  //   }
-  // });
-
-  // Helper functions
-  // function handleSpeechStarted() {
-  //   if (markQueue.length > 0 && responseStartTimestampTwilio !== null) {
-  //     const elapsedTime = latestMediaTimestamp - responseStartTimestampTwilio;
-  //     if (lastAssistantItem) {
-  //       openAiWs.send(
-  //         JSON.stringify({
-  //           type: "conversation.item.truncate",
-  //           item_id: lastAssistantItem,
-  //           content_index: 0,
-  //           audio_end_ms: elapsedTime,
-  //         }),
-  //       );
-  //     }
-  //     server.send(
-  //       JSON.stringify({
-  //         event: "clear",
-  //         streamSid: streamSid,
-  //       }),
-  //     );
-  //     markQueue = [];
-  //     lastAssistantItem = null;
-  //     responseStartTimestampTwilio = null;
-  //   }
-  // }
-
-  // function sendMark(connection: WebSocket, streamSid: string | null) {
-  //   if (streamSid) {
-  //     const markEvent = {
-  //       event: "mark",
-  //       streamSid: streamSid,
-  //       mark: { name: "responsePart" },
-  //     };
-  //     connection.send(JSON.stringify(markEvent));
-  //     markQueue.push("responsePart");
-  //   }
-  // }
-
-  // Cleanup handlers
-  // server.addEventListener("close", () => {
-  //   openAiWs.close();
-  //   console.log("Twilio connection closed");
-  // });
-
-  // openAiWs.addEventListener("close", () => {
-  //   server.close();
-  //   console.log("OpenAI connection closed");
-  // });
+  handleTwilioWebSocket();
 }
-
-// used in deepgram
-// function handleWebSocketSession(webSocket: WebSocket, agentSlug: string) {
-//   webSocket.accept();
-
-//   const configMessage = {
-//     type: "SettingsConfiguration",
-//     audio: {
-//       input: {
-//         encoding: "mulaw",
-//         sample_rate: 8000,
-//       },
-//       output: {
-//         encoding: "mulaw",
-//         sample_rate: 8000,
-//         container: "none",
-//         buffer_size: 250,
-//       },
-//     },
-//     agent: {
-//       listen: {
-//         model: "nova-2",
-//       },
-//       think: {
-//         provider: "open_ai",
-//         model: "gpt-4o",
-//         instructions:
-//           "You are a helpful voice assistant. You cannot perform actions, but you have expert knowledge. Please be as concise as possible.",
-//         functions: [],
-//       },
-//       speak: {
-//         model: "aura-asteria-en",
-//       },
-//     },
-//   };
-
-//   const audioQueue: any[] = [];
-//   let streamSid: undefined | string = undefined;
-
-//   let stsWs: WebSocket | null = null;
-
-//   function connectToSts() {
-//     return new WebSocket(agentWsUrl, ["token", deepgramToken]);
-//   }
-
-//   async function handleStsWebSocket() {
-//     stsWs = connectToSts();
-//     stsWs.addEventListener("open", () => {
-//       stsWs?.send(JSON.stringify(configMessage));
-//     });
-
-//     stsWs.addEventListener("message", async (event) => {
-//       const message = event.data;
-
-//       if (typeof message === "string") {
-//         // this logs what is happening
-//         console.log(message);
-//         return;
-//       }
-
-//       const rawMulaw = message;
-//       const mulawString = String.fromCharCode(...new Uint8Array(rawMulaw));
-//       const mediaMessage = {
-//         event: "media",
-//         streamSid,
-//         media: { payload: btoa(mulawString) },
-//       };
-
-//       webSocket.send(JSON.stringify(mediaMessage));
-//     });
-//   }
-
-// async function handleTwilioWebSocket() {
-//   const BUFFER_SIZE = 20 * 160;
-//   let inbuffer: Uint8Array = new Uint8Array(0);
-
-//   webSocket.addEventListener("message", async (event) => {
-//     const data = JSON.parse(event.data as string);
-//     if (data.event === "start") {
-//       const start = data.start;
-//       console.log("got our streamsid", streamSid);
-//       streamSid = start.streamSid;
-//     }
-//     if (data.event === "connected") {
-//       return;
-//     }
-//     if (data.event === "media") {
-//       const media = data.media;
-//       const chunk = new Uint8Array(
-//         atob(media.payload)
-//           .split("")
-//           .map((char) => char.charCodeAt(0)),
-//       );
-//       if (media.track === "inbound") {
-//         const newBuffer = new Uint8Array(inbuffer.length + chunk.length);
-//         newBuffer.set(inbuffer);
-//         newBuffer.set(chunk, inbuffer.length);
-//         inbuffer = newBuffer;
-//       }
-//     }
-//     if (data.event === "stop") {
-//       return;
-//     }
-
-//     while (inbuffer.length >= BUFFER_SIZE) {
-//       const chunk = inbuffer.slice(0, BUFFER_SIZE);
-//       audioQueue.push(chunk);
-//       inbuffer = inbuffer.slice(BUFFER_SIZE);
-
-//       if (stsWs && stsWs.readyState === WebSocket.OPEN) {
-//         stsWs.send(chunk.buffer);
-//       } else {
-//         console.warn("STS WebSocket not open, cannot send chunk");
-//       }
-//     }
-//   });
-// }
-
-//   handleStsWebSocket();
-//   handleTwilioWebSocket();
-// }
