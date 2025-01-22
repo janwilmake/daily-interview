@@ -22,16 +22,16 @@ export const createStreamPhonecall = async (context: {
 
   try {
     // Validate phone number format
-    if (!phoneNumber.startsWith("+")) {
+    if (phoneNumber.startsWith("+")) {
       return {
         isSuccessful: false,
-        message: "Phone number must be in E.164 format (+1234567890)",
+        message: "Phone number must be without + (1234567890)",
       };
     }
 
     // Basic region check
-    const isEea = phoneNumber.startsWith("+3") || phoneNumber.startsWith("+4");
-    const isUs = phoneNumber.startsWith("+1");
+    const isEea = phoneNumber.startsWith("3") || phoneNumber.startsWith("4");
+    const isUs = phoneNumber.startsWith("1");
     if (!isEea && !isUs) {
       return {
         isSuccessful: false,
@@ -61,7 +61,6 @@ export const createStreamPhonecall = async (context: {
       isSuccessful: true,
       message: "Call initiated with audio stream",
       callSid: call.sid,
-      price: call.price,
     };
   } catch (error: any) {
     console.error("Twilio Error:", error);

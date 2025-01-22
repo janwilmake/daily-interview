@@ -1,5 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
-
+/**
+phone call streamer is initiated but 
+*/
 import { createStreamPhonecall } from "./createStreamPhonecall";
 
 export interface Env {
@@ -36,6 +38,21 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
+    if (url.pathname === "/test") {
+      const streamUrl = `wss://${env.WORKER_HOST}/media-stream`;
+      console.log({ streamUrl });
+      const result = await createStreamPhonecall({
+        twilioAccountSid: env.TWILIO_ACCOUNT_SID,
+        twilioAuthToken: env.TWILIO_AUTH_TOKEN,
+        phoneNumber: env.TARGET_PHONE_NUMBER,
+        streamUrl,
+        fromNumber: env.TWILIO_FROM_NUMBER,
+      });
+      return new Response(JSON.stringify(result, undefined, 2), {
+        headers: { "content-type": "application/json" },
+      });
+    }
+
     // Handle incoming call webhook
     if (url.pathname === "/incoming-call") {
       const twiml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -44,7 +61,7 @@ export default {
                     <Pause length="1"/>
                     <Say>O.K. you can start talking!</Say>
                     <Connect>
-                        <Stream url="wss://${url.host}/media-stream" />
+                        <Stream url="wss://${env.WORKER_HOST}/media-stream" />
                     </Connect>
                 </Response>`;
 
@@ -96,7 +113,6 @@ function handleServerWebSocket(server: WebSocket, env: Env) {
   const SYSTEM_MESSAGE = "You are a helpful and bubbly AI assistant..."; // Keep your original message
   const VOICE = "alloy";
   const LOG_EVENT_TYPES = ["error", "response.content.done"];
-  const SHOW_TIMING_MATH = false;
 
   let streamSid: string | null = null;
   let latestMediaTimestamp = 0;
@@ -106,13 +122,14 @@ function handleServerWebSocket(server: WebSocket, env: Env) {
 
   // Create OpenAI WebSocket connection
   const openAiWs = new WebSocket(
-    "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01",
-    {
-      headers: {
-        Authorization: `Bearer ${env.OPENAI_API_KEY}`,
-        "OpenAI-Beta": "realtime=v1",
-      },
-    },
+    "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17",
+    [
+      "realtime",
+      // Auth
+      "openai-insecure-api-key." + env.OPENAI_API_KEY,
+      // Beta protocol, required
+      "openai-beta.realtime-v1",
+    ],
   );
 
   // OpenAI WebSocket handlers
