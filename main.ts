@@ -100,7 +100,7 @@ export default {
       url.pathname === "/test" &&
       env.TEST_SECRET === url.searchParams.get("secret")
     ) {
-      const streamUrl = `wss://${env.WORKER_HOST}/media-stream?instructionsUrl=${env.INSTRUCTIONS_URL}`;
+      const streamUrl = `wss://${env.WORKER_HOST}/media-stream`;
       const result = await createStreamPhonecall({
         twilioAccountSid: env.TWILIO_ACCOUNT_SID,
         twilioAuthToken: env.TWILIO_AUTH_TOKEN,
@@ -116,7 +116,7 @@ export default {
     // Handle WebSocket upgrade for media stream
     if (url.pathname === "/media-stream") {
       console.log("RECEIVED /media-stream");
-      const instructionsUrl = url.searchParams.get("instructionsUrl");
+      const instructionsUrl = env.INSTRUCTIONS_URL;
       if (!instructionsUrl) {
         return new Response("No instructions given", { status: 400 });
       }
