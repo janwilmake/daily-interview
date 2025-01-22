@@ -100,6 +100,7 @@ export default {
       url.pathname === "/test" &&
       env.TEST_SECRET === url.searchParams.get("secret")
     ) {
+      console.log({ instructionsUrl: env.INSTRUCTIONS_URL });
       const streamUrl = `wss://${env.WORKER_HOST}/media-stream`;
       const result = await createStreamPhonecall({
         twilioAccountSid: env.TWILIO_ACCOUNT_SID,
