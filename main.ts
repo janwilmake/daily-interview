@@ -340,7 +340,7 @@ function handleServerWebSocket(
         console.error("OpenAI message error:", error);
       }
     });
-
+    //
     openAiWs.addEventListener("error", (ev: any) => {
       console.log("openaiWs error", ev.message);
     });
