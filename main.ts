@@ -72,6 +72,7 @@ export default {
 
     // Handle WebSocket upgrade for media stream
     if (url.pathname === "/media-stream") {
+      console.log("RECEIVED /media-stream");
       const webSocketPair = new WebSocketPair();
       const [client, server] = Object.values(webSocketPair);
 
@@ -110,6 +111,9 @@ export default {
 };
 
 function handleServerWebSocket(server: WebSocket, env: Env) {
+  server.accept();
+
+  const audioQueue: any[] = [];
   const SYSTEM_MESSAGE = "You are a helpful and bubbly AI assistant..."; // Keep your original message
   const VOICE = "alloy";
   const LOG_EVENT_TYPES = ["error", "response.content.done"];
@@ -263,3 +267,124 @@ function handleServerWebSocket(server: WebSocket, env: Env) {
     console.log("OpenAI connection closed");
   });
 }
+
+// used in deepgram
+// function handleWebSocketSession(webSocket: WebSocket, agentSlug: string) {
+//   webSocket.accept();
+
+//   const configMessage = {
+//     type: "SettingsConfiguration",
+//     audio: {
+//       input: {
+//         encoding: "mulaw",
+//         sample_rate: 8000,
+//       },
+//       output: {
+//         encoding: "mulaw",
+//         sample_rate: 8000,
+//         container: "none",
+//         buffer_size: 250,
+//       },
+//     },
+//     agent: {
+//       listen: {
+//         model: "nova-2",
+//       },
+//       think: {
+//         provider: "open_ai",
+//         model: "gpt-4o",
+//         instructions:
+//           "You are a helpful voice assistant. You cannot perform actions, but you have expert knowledge. Please be as concise as possible.",
+//         functions: [],
+//       },
+//       speak: {
+//         model: "aura-asteria-en",
+//       },
+//     },
+//   };
+
+//   const audioQueue: any[] = [];
+//   let streamSid: undefined | string = undefined;
+
+//   let stsWs: WebSocket | null = null;
+
+//   function connectToSts() {
+//     return new WebSocket(agentWsUrl, ["token", deepgramToken]);
+//   }
+
+//   async function handleStsWebSocket() {
+//     stsWs = connectToSts();
+//     stsWs.addEventListener("open", () => {
+//       stsWs?.send(JSON.stringify(configMessage));
+//     });
+
+//     stsWs.addEventListener("message", async (event) => {
+//       const message = event.data;
+
+//       if (typeof message === "string") {
+//         // this logs what is happening
+//         console.log(message);
+//         return;
+//       }
+
+//       const rawMulaw = message;
+//       const mulawString = String.fromCharCode(...new Uint8Array(rawMulaw));
+//       const mediaMessage = {
+//         event: "media",
+//         streamSid,
+//         media: { payload: btoa(mulawString) },
+//       };
+
+//       webSocket.send(JSON.stringify(mediaMessage));
+//     });
+//   }
+
+//   async function handleTwilioWebSocket() {
+//     const BUFFER_SIZE = 20 * 160;
+//     let inbuffer: Uint8Array = new Uint8Array(0);
+
+//     webSocket.addEventListener("message", async (event) => {
+//       const data = JSON.parse(event.data as string);
+//       if (data.event === "start") {
+//         const start = data.start;
+//         console.log("got our streamsid", streamSid);
+//         streamSid = start.streamSid;
+//       }
+//       if (data.event === "connected") {
+//         return;
+//       }
+//       if (data.event === "media") {
+//         const media = data.media;
+//         const chunk = new Uint8Array(
+//           atob(media.payload)
+//             .split("")
+//             .map((char) => char.charCodeAt(0)),
+//         );
+//         if (media.track === "inbound") {
+//           const newBuffer = new Uint8Array(inbuffer.length + chunk.length);
+//           newBuffer.set(inbuffer);
+//           newBuffer.set(chunk, inbuffer.length);
+//           inbuffer = newBuffer;
+//         }
+//       }
+//       if (data.event === "stop") {
+//         return;
+//       }
+
+//       while (inbuffer.length >= BUFFER_SIZE) {
+//         const chunk = inbuffer.slice(0, BUFFER_SIZE);
+//         audioQueue.push(chunk);
+//         inbuffer = inbuffer.slice(BUFFER_SIZE);
+
+//         if (stsWs && stsWs.readyState === WebSocket.OPEN) {
+//           stsWs.send(chunk.buffer);
+//         } else {
+//           console.warn("STS WebSocket not open, cannot send chunk");
+//         }
+//       }
+//     });
+//   }
+
+//   handleStsWebSocket();
+//   handleTwilioWebSocket();
+// }
