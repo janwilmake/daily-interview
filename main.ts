@@ -244,6 +244,8 @@ function handleServerWebSocket(
   }
 
   async function handleOpenAiWs() {
+    const instructionsResult = await instructionsPromise;
+
     openAiWs = new WebSocket(
       "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17",
       [
@@ -254,13 +256,14 @@ function handleServerWebSocket(
         "openai-beta.realtime-v1",
       ],
     );
-    openAiWs.addEventListener("open", async () => {
+    openAiWs.addEventListener("open", () => {
       console.log("OpenAI WS Open now!");
-      const instructionsResult = await instructionsPromise;
       const instructions =
         instructionsResult.status === 200
           ? instructionsResult.text
           : "The instructions couldn't be found. Please let the user know that this is the case, and end your conversation afterwards";
+
+      console.log("inst:", instructions.slice(0, 20));
 
       const sessionUpdate = {
         type: "session.update",
@@ -274,6 +277,8 @@ function handleServerWebSocket(
           temperature: 0.8,
         },
       };
+
+      console.log("sesh update", sessionUpdate);
 
       openAiWs.send(JSON.stringify(sessionUpdate));
     });
@@ -344,13 +349,12 @@ function handleServerWebSocket(
     openAiWs.addEventListener("error", (ev: any) => {
       console.log("openaiWs error", ev.message);
     });
-    openAiWs.addEventListener("close", (ev) => {
+    openAiWs.addEventListener("close", (ev: any) => {
       twilioWebsocket.close();
-      console.log("OpenAI connection closed", ev);
+      console.log("OpenAI connection closed", JSON.stringify(ev));
     });
   }
 
   handleOpenAiWs();
-
   handleTwilioWebSocket();
 }
