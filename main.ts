@@ -122,14 +122,16 @@ export default {
         return new Response("No instructions given", { status: 400 });
       }
 
-      const instructionsPromise = fetch(instructionsUrl).then(async (res) => {
-        return { status: res.status, text: await res.text() };
-      });
-
+      const instructionsResult = await fetch(instructionsUrl).then(
+        async (res) => {
+          return { status: res.status, text: await res.text() };
+        },
+      );
+      console.log("result", instructionsResult);
       const webSocketPair = new WebSocketPair();
       const [client, server] = Object.values(webSocketPair);
       server.accept();
-      handleServerWebSocket(server, env, instructionsPromise);
+      handleServerWebSocket(server, env, instructionsResult);
 
       return new Response(null, {
         status: 101,
@@ -165,7 +167,7 @@ export default {
 function handleServerWebSocket(
   twilioWebsocket: WebSocket,
   env: Env,
-  instructionsPromise: Promise<{ status: number; text: string }>,
+  instructionsResult: { status: number; text: string },
 ) {
   twilioWebsocket.accept();
   console.log("ENTERED THE WEBSOCKET");
@@ -244,8 +246,6 @@ function handleServerWebSocket(
   }
 
   async function handleOpenAiWs() {
-    const instructionsResult = await instructionsPromise;
-
     openAiWs = new WebSocket(
       "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17",
       [
@@ -347,7 +347,7 @@ function handleServerWebSocket(
     });
     //
     openAiWs.addEventListener("error", (ev: any) => {
-      console.log("openaiWs error", ev.message);
+      console.log("openaiWs error", JSON.stringify(ev));
     });
     openAiWs.addEventListener("close", (ev: any) => {
       twilioWebsocket.close();
