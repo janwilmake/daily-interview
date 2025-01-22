@@ -1,8 +1,6 @@
 /// <reference types="@cloudflare/workers-types" />
 import twilio from "twilio";
 
-const ALLOW_TEST_ENDPOINT = false;
-
 export interface Env {
   OPENAI_API_KEY: string;
   TWILIO_ACCOUNT_SID: string;
@@ -11,6 +9,7 @@ export interface Env {
   TARGET_PHONE_NUMBER: string;
   WORKER_HOST: string;
   INSTRUCTIONS_URL: string;
+  TEST_SECRET: string;
 }
 
 export const createStreamPhonecall = async (context: {
@@ -97,7 +96,10 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
-    if (url.pathname === "/test" && ALLOW_TEST_ENDPOINT) {
+    if (
+      url.pathname === "/test" &&
+      env.TEST_SECRET === url.searchParams.get("secret")
+    ) {
       const streamUrl = `wss://${env.WORKER_HOST}/media-stream?instructionsUrl=${env.INSTRUCTIONS_URL}`;
       const result = await createStreamPhonecall({
         twilioAccountSid: env.TWILIO_ACCOUNT_SID,
