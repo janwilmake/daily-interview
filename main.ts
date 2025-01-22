@@ -223,7 +223,7 @@ function handleServerWebSocket(twilioWebsocket: WebSocket, env: Env) {
       console.log("OpenAI connection closed");
     });
   }
-
+  //
   // let latestMediaTimestamp = 0;
   // let lastAssistantItem: string | null = null;
   // let markQueue: string[] = [];
