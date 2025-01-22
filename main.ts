@@ -237,9 +237,9 @@ function handleServerWebSocket(
     twilioWebsocket.addEventListener("error", (ev: any) => {
       console.log("twilioWebsocket error", ev.message);
     });
-    twilioWebsocket.addEventListener("close", (ev) => {
+    twilioWebsocket.addEventListener("close", (ev: any) => {
       openAiWs.close();
-      console.log("Twilio connection closed", ev);
+      console.log("Twilio connection closed", ev.message);
     });
   }
 
