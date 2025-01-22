@@ -14,8 +14,7 @@ MVP:
 
 - User can authenticate with github to register to the service, which sets up a daily cronjob at a configurable time. Cost: $30 per month. Direct
 - https://join.forgithub.com/owner/*/commits?date=xxxx-xx-xx&from&until -> all commits of all repos for a given date or timerange
-
-- the AI agent knows what the user has done today (looking at repos active today, looking at commits in the last 24 hours, then )
+- the AI agent knows what the user has done today (looking at repos active today, looking at commits in the last 24 hours)
 
 # How to use
 
