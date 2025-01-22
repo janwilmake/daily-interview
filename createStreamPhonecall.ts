@@ -42,11 +42,12 @@ export const createStreamPhonecall = async (context: {
     const client = twilio(twilioAccountSid, twilioAuthToken);
     const twiml = new twilio.twiml.VoiceResponse();
 
-    const connect = twiml.connect();
-    connect.stream({
+    const start = twiml.start();
+    start.stream({
       url: streamUrl,
       name: "LiveAudioStream",
-      // track: "both_tracks",
+      // for some reason, this causes an error...
+      track: "both_tracks",
     });
 
     const call = await client.calls.create({
