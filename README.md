@@ -6,11 +6,11 @@ The goal of this repo is to establish a service where a GitHub user can sign up 
 
 POC:
 
-- daily cronjob with my owner token
+- ✅ get the realtime speech-to-speech to work, including with a daily cronjob, with demo instructions.
+- ✅ outgoing phonecall to user phone number (use screenless number so it's already recorded)
 - get my repos active in last 24 hours
 - then get readme for those (file.forgithub.com/janwilmake/README.md?repos=x,y,z)
 - craft prompt based on these repos, to interview the developer about it.
-- outgoing phonecall to user phone number (use screenless number so it's already recorded)
 
 MVP:
 
