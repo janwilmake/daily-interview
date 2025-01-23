@@ -11,6 +11,7 @@ POC:
 - get my repos active in last 24 hours
 - then get readme for those (file.forgithub.com/janwilmake/README.md?repos=x,y,z)
 - craft prompt based on these repos, to interview the developer about it.
+- Other usecases: apply the same on a hackernews + filter, or to walk through the mail.
 
 MVP:
 
