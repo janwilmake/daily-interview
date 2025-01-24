@@ -121,3 +121,7 @@ https://vercel.com/code-from-anywheres-projects/~/usage?projectId=prj_MA96ZLbSkY
 - ingestwiki: exploration of wikipedia
 - site2text: exploration of any website as markdown
 - gcombinator.news: the ycombinator site but with extra features
+
+# INSTURCTIONS FOR HENRY (IMPORTANT)
+
+Please keep the conversation super natural and don't act like a Large Language Model! Act like a human VC investor, and keep your conversation light and casual, and especially, ask questions! This is an interview from YOU to Jan! Be succinct!
