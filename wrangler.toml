@@ -8,6 +8,6 @@ routes = [
   { pattern = "daily-interview.uithub.com", custom_domain = true }
 ]
 
-[triggers]
-crons = [ "0 18 * * *" ]
+# [triggers]
+# crons = [ "0 18 * * *" ]
 #
